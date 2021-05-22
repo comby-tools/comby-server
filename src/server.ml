@@ -1,14 +1,11 @@
 open Core_kernel
-open Dream
 open Lwt
-
 open Comby_kernel
 open Matchers
 
 open Server_types
 
 let (>>|) = (>|=)
-
 
 let debug =
   match Sys.getenv "DEBUG" with
@@ -31,52 +28,77 @@ let check_too_long s =
   else
     Ok s
 
+let with_rule rule ~(f : rule option -> string) =
+  match Option.map rule ~f:Rule.create with
+  | None -> 200, f None
+  | Some Ok rule -> 200, f (Some rule)
+  | Some Error error -> 400, Error.to_string_hum error
+
+let with_matcher language ~f =
+  match Matchers.Alpha.select_with_extension language with
+  | Some matcher -> f matcher
+  | None -> f (module Matchers.Alpha.Generic)
+
 let perform_match request =
   Dream.body request
   >>| check_too_long
   >>| Result.map ~f:(fun v -> In.match_request_of_yojson @@ Yojson.Safe.from_string v)
   >>| Result.join
-  >>| function
-  | Ok In.({ source; match_template; rule; language; id } as request) ->
-    if debug then Format.printf "Received %s@." (Yojson.Safe.pretty_to_string (In.match_request_to_yojson request));
-    let matcher =
-      match Matchers.Alpha.select_with_extension language with
-      | Some matcher -> matcher
-      | None -> (module Matchers.Alpha.Generic)
-    in
-    let run ?rule () =
-      let configuration = Matchers.Configuration.create ~match_kind:Fuzzy () in
-      let specification = Specification.create ~match_template ?rule () in (* TODO: rewrite this part *)
-      let matches =
-        Pipeline.execute
-          matcher
-          ~configuration
-          (String source)
-          specification
-        |> function
-        | Matches (m, _) -> m
-        | _ -> []
-      in
-      Out.Matches.to_string { matches; source; id }
-    in
-    let code, result =
-      match Option.map rule ~f:Rule.create with
-      | None -> 200, run ()
-      | Some Ok rule -> 200, run ~rule ()
-      | Some Error error -> 400, Error.to_string_hum error
-    in
-    Dream.respond ~code result
+  >>= function
   | Error error ->
     Dream.respond ~code:400 error
+  | Ok In.({ source; match_template; rule; language; id } as request) ->
+    if debug then Format.printf "Received %s@." (Yojson.Safe.pretty_to_string (In.match_request_to_yojson request));
+    with_matcher language ~f:(fun (module Matcher) ->
+        let run rule =
+          let configuration = Matchers.Configuration.create ~match_kind:Fuzzy () in
+          let matches = Matcher.all ~configuration ~template:match_template ?rule ~source () in
+          Out.Matches.to_string { matches; source; id }
+        in
+        let code, result = with_rule rule ~f:run in
+        Dream.respond ~headers:["Access-Control-Allow-Origin", "*"] ~code result)
 
+let perform_rewrite request =
+  Dream.body request
+  >>| check_too_long
+  >>| Result.map ~f:(fun v -> In.rewrite_request_of_yojson @@ Yojson.Safe.from_string v)
+  >>| Result.join
+  >>= function
+  | Error error ->
+    Dream.respond ~code:400 error
+  | Ok ({ source; match_template; rewrite_template; rule; language; substitution_kind; id } as request) ->
+    if debug then Format.printf "Received %s@." (Yojson.Safe.pretty_to_string (In.rewrite_request_to_yojson request));
+    with_matcher language ~f:(fun (module Matcher) ->
+        let source_substitution =
+          match substitution_kind with
+          | "newline_separated" -> None
+          | "in_place" | _ -> Some source
+        in
+        let default =
+          Out.Rewrite.to_string
+            { rewritten_source = ""
+            ; in_place_substitutions = []
+            ; id
+            }
+        in
+        let run rule =
+          let configuration = Matchers.Configuration.create ~match_kind:Fuzzy () in
+          let matches = Matcher.all ~configuration ~template:match_template ?rule ~source () in
+          Comby_kernel.Matchers.Rewrite.all matches ?source:source_substitution ~rewrite_template
+          |> Option.value_map ~default ~f:(fun Comby_kernel.Replacement.{ rewritten_source; in_place_substitutions } ->
+              Out.Rewrite.to_string
+                { rewritten_source
+                ; in_place_substitutions
+                ; id
+                })
+        in
+        let code, result = with_rule rule ~f:run in
+        Dream.respond ~headers:["Access-Control-Allow-Origin", "*"] ~code result)
 
 let () =
   Dream.run
   @@ Dream.router
     [ Dream.post "/match" perform_match
-      (*
-            ; Dream.post "/rewrite" perform_rewrite
-            ; Dream.post "/substitute" perform_environment_substitute
-      *)
+    ; Dream.post "/rewrite" perform_rewrite
     ]
   @@ Dream.not_found
