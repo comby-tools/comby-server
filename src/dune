@@ -1,0 +1,13 @@
+(executables
+ (libraries comby-kernel core_kernel dream)
+ (preprocess (pps ppx_deriving_yojson ppx_let ppx_deriving.show ppx_sexp_conv))
+ (modules server server_types)
+ (names server))
+
+(alias
+ (name DEFAULT)
+ (deps server.exe))
+
+(install
+ (section bin)
+ (files (server.exe as comby-server)))
