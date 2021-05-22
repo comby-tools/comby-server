@@ -7,6 +7,32 @@ open Server_types
 
 let (>>|) = (>|=)
 
+let certificate_file =
+  match Sys.getenv "CERTIFICATE_FILE" with
+  | exception Not_found -> None
+  | file -> Some file
+
+let key_file =
+  match Sys.getenv "KEY_FILE" with
+  | exception Not_found -> None
+  | file -> Some file
+
+let https =
+  if Option.is_some certificate_file  && Option.is_some key_file then
+    Some true
+  else
+    None
+
+let interface =
+  match Sys.getenv "INTERFACE" with
+  | exception Not_found -> None
+  | interface -> Some interface
+
+let port =
+  match Sys.getenv "PORT" with
+  | exception Not_found -> None
+  | port -> Some (Int.of_string port)
+
 let debug =
   match Sys.getenv "DEBUG" with
   | exception Not_found -> false
@@ -96,7 +122,7 @@ let perform_rewrite request =
         Dream.respond ~headers:["Access-Control-Allow-Origin", "*"] ~code result)
 
 let () =
-  Dream.run
+  Dream.run ?port ?interface ?certificate_file ?key_file ?https
   @@ Dream.router
     [ Dream.post "/match" perform_match
     ; Dream.post "/rewrite" perform_rewrite
