@@ -55,6 +55,8 @@ let check_too_long s =
   else
     Ok s
 
+let headers = Cohttp.Header.of_list ["Access-Control-Allow-Origin", "*"]
+
 let with_rule rule ~(f : rule option -> string) =
   match Option.map rule ~f:Rule.create with
   | None -> 200, f None
@@ -67,12 +69,12 @@ let with_matcher language ~f =
   | None -> f (module Matchers.Alpha.Generic)
 
 let perform_match request =
-  Request.to_plain_text request
+  App.string_of_body_exn request
   >>| check_too_long
   >>| Result.map ~f:(fun v -> In.match_request_of_yojson @@ Yojson.Safe.from_string v)
   >>| Result.join
   >>| function
-  | Error error -> Response.make ~status:(Status.of_code 400) ~body:(Body.of_string error) ()
+  | Error error -> Std.respond ~code:(`Code 400) (`String error)
   | Ok In.({ source; match_template; rule; language; id } as request) ->
     if debug then Format.printf "Received %s@." (Yojson.Safe.pretty_to_string (In.match_request_to_yojson request));
     with_matcher language ~f:(fun (module Matcher) ->
@@ -82,16 +84,15 @@ let perform_match request =
           Out.Matches.to_string { matches; source; id }
         in
         let code, result = with_rule rule ~f:run in
-        let headers = Headers.of_list ["Access-Control-Allow-Origin", "*"] in
-        Response.make ~headers ~status:(Status.of_code code) ~body:(Body.of_string result) ())
+        Std.respond ~headers ~code:(`Code code) (`String result))
 
 let perform_rewrite request =
-  Request.to_plain_text request
+  App.string_of_body_exn request
   >>| check_too_long
   >>| Result.map ~f:(fun v -> In.rewrite_request_of_yojson @@ Yojson.Safe.from_string v)
   >>| Result.join
   >>| function
-  | Error error -> Response.make ~status:(Status.of_code 400) ~body:(Body.of_string error) ()
+  | Error error -> Std.respond ~code:(`Code 400) (`String error)
   | Ok ({ source; match_template; rewrite_template; rule; language; substitution_kind; id } as request) ->
     if debug then Format.printf "Received %s@." (Yojson.Safe.pretty_to_string (In.rewrite_request_to_yojson request));
     with_matcher language ~f:(fun (module Matcher) ->
@@ -119,8 +120,7 @@ let perform_rewrite request =
                 })
         in
         let code, result = with_rule rule ~f:run in
-        let headers = Headers.of_list ["Access-Control-Allow-Origin", "*"] in
-        Response.make ~headers ~status:(Status.of_code code) ~body:(Body.of_string result) ())
+        Std.respond ~headers ~code:(`Code code) (`String result))
 
 let () =
   App.empty
