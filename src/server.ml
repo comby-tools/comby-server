@@ -1,11 +1,12 @@
 open Core_kernel
-open Lwt
+open Opium
+
 open Comby_kernel
 open Matchers
 
 open Server_types
 
-let (>>|) = (>|=)
+let (>>|) = Lwt.Infix.(>|=)
 
 let certificate_file =
   match Sys.getenv "CERTIFICATE_FILE" with
@@ -66,13 +67,12 @@ let with_matcher language ~f =
   | None -> f (module Matchers.Alpha.Generic)
 
 let perform_match request =
-  Dream.body request
+  Request.to_plain_text request
   >>| check_too_long
   >>| Result.map ~f:(fun v -> In.match_request_of_yojson @@ Yojson.Safe.from_string v)
   >>| Result.join
-  >>= function
-  | Error error ->
-    Dream.respond ~code:400 error
+  >>| function
+  | Error error -> Response.make ~status:(Status.of_code 400) ~body:(Body.of_string error) ()
   | Ok In.({ source; match_template; rule; language; id } as request) ->
     if debug then Format.printf "Received %s@." (Yojson.Safe.pretty_to_string (In.match_request_to_yojson request));
     with_matcher language ~f:(fun (module Matcher) ->
@@ -82,16 +82,16 @@ let perform_match request =
           Out.Matches.to_string { matches; source; id }
         in
         let code, result = with_rule rule ~f:run in
-        Dream.respond ~headers:["Access-Control-Allow-Origin", "*"] ~code result)
+        let headers = Headers.of_list ["Access-Control-Allow-Origin", "*"] in
+        Response.make ~headers ~status:(Status.of_code code) ~body:(Body.of_string result) ())
 
 let perform_rewrite request =
-  Dream.body request
+  Request.to_plain_text request
   >>| check_too_long
   >>| Result.map ~f:(fun v -> In.rewrite_request_of_yojson @@ Yojson.Safe.from_string v)
   >>| Result.join
-  >>= function
-  | Error error ->
-    Dream.respond ~code:400 error
+  >>| function
+  | Error error -> Response.make ~status:(Status.of_code 400) ~body:(Body.of_string error) ()
   | Ok ({ source; match_template; rewrite_template; rule; language; substitution_kind; id } as request) ->
     if debug then Format.printf "Received %s@." (Yojson.Safe.pretty_to_string (In.rewrite_request_to_yojson request));
     with_matcher language ~f:(fun (module Matcher) ->
@@ -119,12 +119,11 @@ let perform_rewrite request =
                 })
         in
         let code, result = with_rule rule ~f:run in
-        Dream.respond ~headers:["Access-Control-Allow-Origin", "*"] ~code result)
+        let headers = Headers.of_list ["Access-Control-Allow-Origin", "*"] in
+        Response.make ~headers ~status:(Status.of_code code) ~body:(Body.of_string result) ())
 
 let () =
-  Dream.run ?port ?interface ?certificate_file ?key_file ?https
-  @@ Dream.router
-    [ Dream.post "/match" perform_match
-    ; Dream.post "/rewrite" perform_rewrite
-    ]
-  @@ Dream.not_found
+  App.empty
+  |> App.post "/match" perform_match
+  |> App.post "/rewrite" perform_rewrite
+  |> App.run_command
