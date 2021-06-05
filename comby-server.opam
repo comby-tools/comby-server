@@ -26,6 +26,6 @@ depends: [
   # "ssl" {= "0.5.9"} # https://github.com/savonet/ocaml-ssl/issues/70 ?
   # "dream"
 ]
-synopsis: ""
+synopsis: "A server for comby"
 description: """
 """
