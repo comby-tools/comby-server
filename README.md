@@ -1,28 +1,11 @@
-# Install
+# Quick Start
 
-First build and install `comby` from source:
+To start comby-server clone this repository and run docker-compose
 
 ```bash
 git clone https://github.com/comby-tools/comby
-cd comby && opam install . --deps-only -y
-eval $(opam env)
-make
-make install
-cd ..
-```
-
-Then build and install `comby-server` (this repository):
-
-```bash
-git clone https://github.com/comby-tools/comby-server
-cd comby-server && opam install . --deps-only -y
-make
-```
-
-You can now run:
-
-```
-./comby-server
+cd comby
+docker-compose up
 ```
 
 You can test that the server is working by running this command in a separate terminal:
@@ -57,6 +40,33 @@ You should see the response:
   ],
   "id": 0
 }
+```
+
+# Install
+
+First build and install `comby` from source:
+
+```bash
+git clone https://github.com/comby-tools/comby
+cd comby && opam install . --deps-only -y
+eval $(opam env)
+make
+make install
+cd ..
+```
+
+Then build and install `comby-server` (this repository):
+
+```bash
+git clone https://github.com/comby-tools/comby-server
+cd comby-server && opam install . --deps-only -y
+make
+```
+
+You can now run:
+
+```
+./comby-server
 ```
 
 See server options (port, interface, etc.) by typing `comby-server --help`.

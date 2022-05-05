@@ -1,3 +1,6 @@
+PATH  := /home/opam/.opam/4.14/bin:$(PATH)
+SHELL := /bin/bash
+
 all: build
 
 build:
